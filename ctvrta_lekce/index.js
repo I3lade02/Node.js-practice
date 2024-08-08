@@ -2,6 +2,7 @@ const API_PORT = 3000;
 const mongoose = require("mongoose");
 const Joi = require('joi');
 const express = require('express');
+const bcrypt = ('bcrypt');
 const app = express();
 app.use(express.json());
 app.listen(API_PORT, () => console.log('Listening on port ' + API_PORT + '...'));
@@ -72,9 +73,16 @@ const personSchema = new mongoose.Schema({
     role: String
 });
 
+const userSchema = new mongoose.Schema({
+    email: { type: String, index: { unique: true } },
+    passwordHash: String,
+    isAdmin: Boolean
+});
+
 const genres = ["sci-fi", "adventure", "action", "romantic", "animated", "comedy"];
 const Filmik = mongoose.model("Movie", movieSchema);
 const Person = mongoose.model("Person", personSchema);
+const User = mongoose.model("User", userSchema);
 
 function validatePerson(person, required = true) {
     const schema = Joi.object({
@@ -97,6 +105,19 @@ function validateGet(getData) {
         actorID: Joi.string().min(5)
     });
     return schema.validate(getData, { presence: "optional" });
+}
+
+
+function hashPassword(password, saltRounds = 10){
+    return bcrypt.hashSync(password, saltRounds);
+}
+
+function validateUser(data) {
+    const schema = Joi.object({
+        email: Joi.string().email(),
+        password: Joi.string().min(6)
+    });
+    return schema.validate(data, { presence: "reuqired"} );
 }
 
 app.post('/api/people', (req, res) => {
@@ -266,4 +287,33 @@ app.put('/api/people/:id', (req, res) => {
             .then(result => { res.json(result) })
             .catch(err => { res.send("Nepodařilo se uložit osobu!") });
     }
+});
+
+app.post('/api/user', (req, res) => {
+    const userData = req.body;
+    const { error } = validateUser(userData);
+    if (error) {
+        res.status(400).send(error.details[0].message);
+        return;
+    }
+
+    const userCreateData = {
+        email: userData.email,
+        passwordHash: hashPassword(userData.password),
+        isAdmin: false
+    };
+
+    User.create(userCreateData)
+        .then(savedUser => {
+            const result = savedUser.toObject();
+            delete result.passwordHash;
+            res.send(result);
+        })
+        .catch(e => {
+            if (e.code === 11000) {
+                res.status(400).send("Účet se zadaným emailem již existuje");
+                return;
+            }
+            res.status(500).send("Nastala chyba při registraci");
+        });
 });
